@@ -1,0 +1,196 @@
+---
+title: "Gmail Exploration Results"
+output: html_notebook
+---
+
+# The Data
+The Gmail API is documented [here](https://developers.google.com/gmail/api/). The analysis uses the 'gmailr' package. Meta-data for each message was pulled and tidied in the `gmailr_pull.Rmd` file.  
+
+```{r setup}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(lubridate)
+library(plotly)
+emails <- read_csv("email_data.csv") %>% filter(date > mdy("01-01-2016"))
+```
+
+# Total Number of Emails
+
+`r emails %>% count()`  emails since January 1st of this year.
+
+# Time of Day
+
+
+```{r}
+emails %>% 
+  mutate(hour = hour(date)) %>% 
+  group_by(hour) %>% 
+  summarise(count = n()) %>% 
+  # convert from GMT to my timezone 
+  mutate(hour = hour - 6) %>% 
+  ggplot(aes(hour, count)) + geom_line() + scale_x_continuous(breaks = seq(0,24,by = 4))
+```
+
+
+# Day of Week
+
+
+```{r}
+emails %>% 
+  filter(from_name == "sean") %>% 
+  mutate(dow = wday(date)) %>%
+  group_by(dow) %>% 
+  summarise(count = n()) %>%
+  ggplot(aes(dow, count)) + geom_bar(stat="identity")  + ggtitle("Emails by Day of Week")
+```
+
+
+# Throughout the Year
+
+
+```{r}
+p <- emails %>% 
+  filter(from_name == "sean") %>% 
+  mutate(date = round_date(date, "week")) %>%
+  group_by(date) %>% 
+  summarise(count = n()) %>%
+  ggplot(aes(date, count)) + geom_line() + geom_smooth() + ggtitle("Emails Per Week")
+ggplotly(p)
+```
+
+```{r}
+emails %>% 
+  filter(from_name == "sean") %>% 
+  mutate(date = round_date(date, "week")) %>%
+  mutate(recepient = if_else(to_domain=="rstudio.com", "internal", "external")) %>% 
+  group_by(date, recepient) %>% 
+  summarise(count = n()) %>% 
+  na.omit() %>% 
+  ggplot(aes(date, count, color = recepient)) + geom_line() + geom_smooth() + ggtitle("Sent Emails Per Week by Recepient")
+
+```
+
+
+```{r}
+p <- emails %>% 
+  filter(from_name != "sean", from_domain != "rstudio.com") %>% 
+  mutate(date = round_date(date, "week")) %>%
+  group_by(date) %>% 
+  summarise(count = n()) %>%
+  filter(date < ymd(today()) - days(1)) %>% 
+  ggplot(aes(date, count)) + geom_line() + geom_smooth() + ggtitle("Inbound Emails Per Week")
+
+ggplotly(p)
+```
+
+```{r}
+emails %>% 
+  filter(from_name != "sean", from_domain != "rstudio.com") %>% 
+  mutate(date = round_date(date, "week")) %>%
+  mutate(recepient = if_else(to_domain=="rstudio.com", "internal", "external")) %>% 
+  group_by(date, recepient) %>% 
+  summarise(count = n()) %>% 
+  na.omit() %>% 
+  ggplot(aes(date, count, color = recepient)) + geom_line() + geom_smooth() + ggtitle("Inbound Emails by Source")
+```
+
+
+# Internal Emails
+
+```{r}
+popular <- emails %>% 
+  filter(to_domain =="rstudio.com",
+         from_name == "sean") %>% 
+  group_by(to_name) %>% 
+  summarize(count = n()) %>% 
+  #filter(!grepl("[@,().]",to_name)) %>% 
+  filter(!grepl("RStudio", to_name)) %>%
+  arrange(desc(count))
+
+popular %>%   ggplot(aes(x=to_name, y=count)) + geom_bar(stat = "identity") + coord_flip()
+
+popular[1:10, ] %>% ggplot(aes(x=to_name, y=count)) + geom_bar(stat = "identity") + coord_flip()
+  
+```
+
+
+```{r}
+popular <- emails %>% 
+  filter(from_domain =="rstudio.com") %>% 
+  filter(to_name=="sean")%>% 
+  group_by(from_name) %>% 
+  summarize(count = n()) %>% 
+  filter(!grepl("[@,().]",from_name)) %>% 
+  filter(!grepl("RStudio", from_name)) %>%
+  arrange(desc(count))
+
+p <- popular %>%   ggplot(aes(x=from_name, y=count)) + geom_bar(stat = "identity") + coord_flip()
+ggplotly(p)
+
+popular[1:10, ] %>% ggplot(aes(x=from_name, y=count)) + geom_bar(stat = "identity") + coord_flip()
+```
+
+
+# External Emails
+
+```{r}
+popular <- emails %>% 
+  filter(to_domain !="rstudio.com",
+         from_name == "sean") %>% 
+  group_by(to_domain) %>% 
+  summarize(count = n()) %>% 
+  filter(!grepl("[,()]",to_domain)) %>% 
+  filter(!grepl("RStudio", to_domain)) %>%
+  arrange(desc(count))
+
+
+p <- popular[1:20, ] %>% ggplot(aes(x=to_domain, y=count)) + geom_bar(stat = "identity") + coord_flip()
+ggplotly(p)
+  
+```
+
+
+```{r}
+popular <- emails %>% 
+  filter(to_name =="sean", to_domain == "rstudio.com",
+         from_domain != "rstudio.com", 
+         from_domain != "slack.com",
+         from_domain != "mail.zillow.com",
+         from_domain != "team.idonethis.com",
+         from_domain != "marketo.com",
+         from_domain != "google.com",
+         from_domain != "meetup.com",
+         from_domain != "medium.com",
+         from_domain != "collardadvisory.com") %>% 
+  group_by(from_domain) %>% 
+  summarize(count = n()) %>% 
+  arrange(desc(count))
+
+
+p <- popular[1:20, ] %>% ggplot(aes(x=from_domain, y=count)) + geom_bar(stat = "identity") + coord_flip()
+ggplotly(p)  
+```
+
+```{r}
+to <- emails %>% 
+  filter(to_domain != "rstudio.com") %>% 
+  filter(!grepl("[(),]",to_domain)) %>% 
+  select(to_domain) %>% 
+  group_by(to_domain) %>% 
+  summarise(count = n())
+
+from <- emails %>% 
+  filter(from_domain != "rstudio.com") %>% 
+  filter(!grepl("[(),]",from_domain)) %>% 
+  select(from_domain) %>% 
+  group_by(from_domain) %>% 
+  summarise(count = n())
+
+results <- inner_join(to, from, by = c("to_domain"="from_domain")) 
+colnames(results) <- c("domain", "num_sent", "num_received")
+
+results %>% mutate(diff = num_sent - num_received) %>% arrange(desc(diff))
+```
+

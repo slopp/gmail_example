@@ -1,0 +1,75 @@
+---
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(gmailr)
+library(lubridate)
+library(purrr)
+library(stringr)
+library(readr)
+
+use_secret_file("client_secret.json")
+gmail_auth(scope = 'full')
+```
+
+```{r}
+# get message ids
+n = 40000
+t.start = Sys.time()
+m = messages(user_id = 'me', num_results = n) %>% gmailr::id()
+Sys.time() - t.start
+```
+
+```{r}
+#helper functions
+get_domain <- function(s){
+  str_extract(s, "@[A-Za-z0-9-_.]+") %>% str_replace("@","")
+}
+
+get_username <- function(s){
+  str_extract(s, "[A-Za-z0-9-_.]+@") %>% str_replace("@","")
+}
+
+# get resulting payload
+get_info <- function(id) {
+  setwd("~/Desktop/Sandbox for Code/gmail_example")
+  mes = message(id)
+  res = data.frame(
+    id = id,
+    to = to(mes),
+    from = from(mes),
+    Date = date(mes),
+    subject = subject(mes)
+  ) %>%
+    mutate(to_name = get_username(to)) %>% 
+    mutate(to_domain = get_domain(to)) %>% 
+    mutate(from_name = get_username(from)) %>% 
+    mutate(from_domain = get_domain(from)) %>%
+    mutate(date = dmy_hms(substr(Date, 5, 25), tz = "GMT")) %>%
+    mutate(tz_sign = substr(Date, 27, 27)) %>%
+    mutate(tz_magn = as.numeric(substr(Date, 28, 29))) %>%
+    mutate(date = if_else(tz_sign == "+", date - hours(tz_magn), date + hours(tz_magn))) %>%
+    select(id, date, subject, from_name, to_name, to_domain, from_domain)
+  
+  res
+  
+}
+
+get_info_robust <- function(id) {
+  tryCatch({get_info(id)}, error = function(e){
+    data.frame(date = NA, subject = NA,
+               id = id, 
+               from_name = NA, from_email = NA,
+               to_name = NA, to_email = NA, to_domain = NA, from_domain = NA)
+  })
+}
+
+t.start2 = Sys.time()
+res = map_df(m, get_info_robust)
+Sys.time() - t.start2
+
+write_csv(res, "email_data.csv")
+```
+
