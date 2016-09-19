@@ -4,25 +4,12 @@ output: html_document
 
 ```{r}
 library(dplyr)
-library(gmailr)
-library(lubridate)
 library(purrr)
 library(stringr)
 library(readr)
+library(gmailr)
 
-use_secret_file("client_secret.json")
 gmail_auth(scope = 'full')
-```
-
-```{r}
-# get message ids
-n = 40000
-t.start = Sys.time()
-m = messages(user_id = 'me', num_results = n) %>% gmailr::id()
-Sys.time() - t.start
-```
-
-```{r}
 #helper functions
 get_domain <- function(s){
   str_extract(s, "@[A-Za-z0-9-_.]+") %>% str_replace("@","")
@@ -34,8 +21,7 @@ get_username <- function(s){
 
 # get resulting payload
 get_info <- function(id) {
-  setwd("~/Desktop/Sandbox for Code/gmail_example")
-  mes = message(id)
+  mes <- message(id)
   res = data.frame(
     id = id,
     to = to(mes),
@@ -65,11 +51,32 @@ get_info_robust <- function(id) {
                to_name = NA, to_email = NA, to_domain = NA, from_domain = NA)
   })
 }
+```
+
+```{r}
+# get message ids
+n <- 100
+system.time({m <- messages(user_id = 'me', num_results = n) %>% gmailr::id()})
+system.time({mes <- lapply(m, possibly(message, otherwise = NULL), format = "metadata")})
+system.time({
+  res <- data_frame(
+    id = m[!map_lgl(mes, is.null)],
+    to = map_chr(mes, to),
+    from = map_chr(mes, from),
+    date = as.POSIXct(strptime(map_chr(mes, gmailr::date), "%a, %d %b %Y %X %z")),
+    subject = map_chr(mes, subject),
+    to_name = get_username(to),
+    to_domain = get_domain(to),
+    from_name = get_username(from),
+    from_domain = get_domain(from)) %>%
+  select(id, date, subject, from_name, to_name, to_domain, from_domain)
+})
+```
+
 
 t.start2 = Sys.time()
-res = map_df(m, get_info_robust)
+system.time({ res = map_df(m, get_info) })
 Sys.time() - t.start2
 
 write_csv(res, "email_data.csv")
 ```
-
